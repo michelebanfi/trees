@@ -584,6 +584,22 @@ def main():
     extras, dbt_tree_xy = dbt_heights(buildings, utm2xy)
     trees = build_tree_list(osm_trees, tree_rows, dbt_tree_xy)
 
+    # optional intervention scenario: extra trees / shade sails as obstacles
+    import os
+    out_file = OUT_FILE
+    scen_path = os.environ.get("SCENARIO")
+    if scen_path:
+        sc = json.load(open(scen_path))
+        for x, y, h, crown in sc.get("trees", []):
+            trees.append((x, y, h, crown, False))
+        for x, y in sc.get("sails", []):
+            # 6x6 m tensile sail at ~4 m: modeled as a flat "evergreen crown"
+            # of equal area (r 3.4 m, tau 0.15 vs the real ~0.10)
+            trees.append((x, y, 4.1, 6.8, True))
+        out_file = OUT_FILE.replace(".npz", f"_{sc['name']}.npz")
+        print(f"scenario '{sc['name']}': +{len(sc.get('trees', []))} trees, "
+              f"+{len(sc.get('sails', []))} sails -> {out_file}")
+
     grid, bld, (etop, ebot), (dtop, dbot) = build_rasters(buildings, extras, trees)
     bmask_full = bld > 0
     cover = build_cover(grid, roads, bmask_full)
@@ -663,7 +679,7 @@ def main():
             f"{s} {entry['hours_' + s]:.1f}" for s in season_idx))
 
     np.savez_compressed(
-        OUT_FILE, hours=hours, insol=insol, midday=midday,
+        out_file, hours=hours, insol=insol, midday=midday,
         annual_hours=annual_h, annual_insol=annual_i, annual_midday=annual_m,
         bmask=bmask_rec, cover=cover_rec, daylight=daylight,
         trees=np.array([(x, y, min(max(c / 2, 1), 8)) for x, y, h, c, _ in trees],
@@ -672,7 +688,7 @@ def main():
                          ys_c[-1] - RES / 2, ys_c[0] + RES / 2]),
         origin=np.array([LAT0, LON0]), res=np.array([RES]),
         poi=json.dumps(poi_out))
-    print(f"\nwrote {OUT_FILE}")
+    print(f"\nwrote {out_file}")
 
 
 if __name__ == "__main__":

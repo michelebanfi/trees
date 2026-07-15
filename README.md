@@ -33,7 +33,26 @@ Università Statale buildings that share Città Studi).
 | 8. pedestrian flows PT → campus + sun overlay | `route_flows.py` | `route_flows.json` |
 | 9. render flow map + corridor ranking | `render_flows.py` | `flow_map_summer.png`, `flow_corridors.png` |
 
+| 10. optimize shading placements (trees / sails) | `scenarios.py` | `scenario_*.json`, `proposal_placements.png` |
+| 11. exact re-simulation per scenario | `SCENARIO=data/<c>/scenario_trees.json python3 compute_sun_hours.py` | `sun_hours_<scenario>.npz` |
+| 12. proposal indicators + point views | `indicators.py` | `indicators.md`, `proposal_points.png` |
+
 `make_map.py` is a legacy exploration of the municipality tree dataset.
+
+## Shading proposal (steps 10–12)
+
+Two equal-budget solutions (constants at the top of `scenarios.py` are
+**placeholder cost guesses** to refine): semi-mature **trees**
+(EUR 1,200 installed, EUR 60/y) vs 6x6 m tensile **shade sails**
+(EUR 250/m² installed, EUR 8/m²/y). A greedy optimizer places objects where
+their June–August shadow removes the most irradiance from flow-weighted
+walked cells (shadow kernels from the NOAA sun positions; the sun field is
+damped after each placement so overlaps don't double-count). Placements are
+then fed back into the ray-marching model (`SCENARIO=` env var) for exact
+post-intervention rasters, from which `indicators.py` computes the
+quantitative indicator table (routes/area in shade, mean sun, surface-
+temperature proxy, trees/green/canopy, costs, time) plus before/after values
+and views at the proposal points A/B/C.
 
 ## Method
 

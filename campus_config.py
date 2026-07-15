@@ -33,6 +33,12 @@ CONFIGS = {
         # (lat, lon, radius m): Edificio 32.1-32.5 on via Colombo
         exclude_dest=[(45.471908, 9.227015, 150.0)],
         flow_labels=True,
+        # example locations for the shading proposal (before/after views)
+        proposal_points={
+            "A": (45.478540, 9.231276),
+            "B": (45.479402, 9.228557),
+            "C": (45.478133, 9.226814),
+        },
     ),
     "bovisa": dict(
         label="PoliMi Bovisa",
@@ -48,6 +54,7 @@ CONFIGS = {
                    "D07_3", "D07_4", "E06_1", "E06_4", "E07_1", "E07_4"],
         exclude_dest=[],
         flow_labels=False,
+        proposal_points={},
     ),
 }
 
