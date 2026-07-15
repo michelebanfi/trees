@@ -22,20 +22,17 @@ import json
 import math
 import numpy as np
 
-OSM_FILE = "data/osm_cittastudi.json"
-COVER_FILE = "data/osm_landcover.json"
-MUNI_FILE = "alberi_filtered.geojson"
-DBT_FILE = "data/dbt_extract.json"
-OUT_FILE = "data/sun_hours.npz"
+from campus_config import (CFG, OSM_FILE, COVER_FILE, MUNI_FILE, DBT_FILE,
+                           SUN_FILE as OUT_FILE)
 
 # --- geometry ------------------------------------------------------------
-LAT0, LON0 = 45.4785, 9.2290                     # projection origin
+LAT0, LON0 = CFG["origin"]                       # projection origin
 M_PER_DEG_LAT = 111132.0
 M_PER_DEG_LON = 111320.0 * math.cos(math.radians(LAT0))
 
 RES = 1.5                                        # raster resolution (m)
-REC_S, REC_N = 45.4758, 45.4812                  # receptor (analysis) box
-REC_W, REC_E = 9.2250, 9.2345
+# receptor (analysis) box
+REC_S, REC_W, REC_N, REC_E = CFG["analysis_bbox"]
 
 KCAP = 220                                       # max ray steps (=330 m reach)
 MIN_ELEV = 3.0                                   # deg
@@ -47,10 +44,7 @@ TAU_LEAF = 0.15    # direct transmissivity of a leafed crown
 TAU_BARE = 0.55    # bare deciduous crown (branches only)
 SOLAR_CONST = 1361.0
 
-POIS = {
-    "P1 street (no shade)": (45.478528, 9.231236),
-    "P2 central area": (45.478120, 9.228271),
-}
+POIS = CFG["pois"]
 POI_RADIUS = 15.0
 
 BUILDING_DEFAULT_H = {
@@ -111,9 +105,10 @@ def _utm32_forward(lat, lon):
 
 def make_utm_to_xy():
     """Affine fit of UTM32N->local over the study area (residuals < 1 cm)."""
+    s, w, n, e = CFG["analysis_bbox"]
     src, dst = [], []
-    for lat in (45.4730, 45.4785, 45.4840):
-        for lon in (9.2190, 9.2290, 9.2390):
+    for lat in (s, (s + n) / 2, n):
+        for lon in (w, (w + e) / 2, e):
             src.append(_utm32_forward(lat, lon))
             dst.append(to_xy(lat, lon))
     src = np.array(src); dst = np.array(dst)
@@ -438,8 +433,9 @@ def stamp_crown(grid, top, bot, x, y, r, h, base):
 
 
 def build_rasters(buildings, extras, trees):
-    x0, y0 = to_xy(45.4735, 9.2200)
-    x1, y1 = to_xy(45.4835, 9.2380)
+    from campus_config import FETCH_BBOX
+    x0, y0 = to_xy(FETCH_BBOX[0], FETCH_BBOX[1])
+    x1, y1 = to_xy(FETCH_BBOX[2], FETCH_BBOX[3])
     grid = Grid(x0, x1, y0, y1, RES)
     print(f"grid: {grid.ny} x {grid.nx} cells @ {RES} m")
 

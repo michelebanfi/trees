@@ -8,8 +8,7 @@ import time
 import urllib.request
 import urllib.parse
 
-BBOX = (45.4735, 9.2200, 45.4835, 9.2380)
-OUT = "data/osm_landcover.json"
+from campus_config import FETCH_BBOX as BBOX, COVER_FILE as OUT
 
 QUERY = f"""
 [out:json][timeout:120];

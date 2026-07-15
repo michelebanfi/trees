@@ -14,10 +14,11 @@ import json
 import os
 import subprocess
 
-TILES = ["F09_1", "F09_2", "F10_1", "F10_2", "F10_3", "F10_4"]
+from campus_config import CFG, DBT_FILE as OUT
+
+TILES = CFG["dbt_tiles"]
 DWG_DIR = "DWG_2020/3D"
 CACHE = os.environ.get("DBT_CACHE", "/tmp/dbt_json")
-OUT = "data/dbt_extract.json"
 
 ROOF_RING_LAYERS = {
     "C102_EDIFICIO", "C102_EDIF_COMMERC", "C102_EDIF_DI_CULTO",
@@ -41,7 +42,7 @@ def parse_tile(path):
 
     def lname(o):
         ref = o.get("layer")
-        return layers.get(ref[2], "?") if ref else "?"
+        return layers.get(ref[2], "?") if ref and len(ref) > 2 else "?"
 
     rings, roof_pts, ground_pts, trees = [], [], [], []
     cur = None

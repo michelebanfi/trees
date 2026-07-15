@@ -1,54 +1,38 @@
+"""Filter the Milano municipality tree census (ds2484, whole city) down to the
+current campus fetch bbox."""
 import json
-import math
+from collections import Counter
+
+from campus_config import FETCH_BBOX, MUNI_FILE
 
 SRC = "ds2484_alberi_20240331.geojson"
-CENTER_LAT = 45.4772741
-CENTER_LON = 9.2285005
-RADIUS_M = 1000.0
-
-def haversine(lat1, lon1, lat2, lon2):
-    R = 6371000.0  # meters
-    p1 = math.radians(lat1)
-    p2 = math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlam = math.radians(lon2 - lon1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlam / 2) ** 2
-    return 2 * R * math.asin(math.sqrt(a))
 
 with open(SRC, "r", encoding="utf-8") as f:
     data = json.load(f)
 
-feats = data["features"]
-total = len(feats)
+S, W, N, E = FETCH_BBOX
 kept = []
-for ft in feats:
+for ft in data["features"]:
     coords = ft.get("geometry", {}).get("coordinates")
     if not coords or len(coords) < 2:
         continue
     lon, lat = coords[0], coords[1]
-    d = haversine(CENTER_LAT, CENTER_LON, lat, lon)
-    if d <= RADIUS_M:
+    if S <= lat <= N and W <= lon <= E:
         kept.append(ft)
 
-print(f"total features: {total}")
-print(f"within {RADIUS_M:.0f}m: {len(kept)}")
-
-from collections import Counter
-genera = Counter()
-for ft in kept:
-    g = ft["properties"].get("genere") or "Sconosciuto"
-    genera[g] += 1
-
-print(f"unique genera: {len(genera)}")
-for g, c in genera.most_common():
-    print(f"  {g}: {c}")
+print(f"total features: {len(data['features'])}")
+print(f"within {FETCH_BBOX}: {len(kept)}")
+genera = Counter((ft["properties"].get("genere") or "Sconosciuto")
+                 for ft in kept)
+print(f"unique genera: {len(genera)}; top:",
+      ", ".join(f"{g} {c}" for g, c in genera.most_common(8)))
 
 out = {
     "type": "FeatureCollection",
-    "name": "alberi_1km",
+    "name": "alberi_campus",
     "crs": data.get("crs"),
     "features": kept,
 }
-with open("alberi_filtered.geojson", "w", encoding="utf-8") as f:
+with open(MUNI_FILE, "w", encoding="utf-8") as f:
     json.dump(out, f, ensure_ascii=False)
-print("wrote alberi_filtered.geojson")
+print("wrote", MUNI_FILE)

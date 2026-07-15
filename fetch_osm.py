@@ -1,11 +1,8 @@
-"""Fetch buildings, trees and roads around PoliMi Citta Studi from OpenStreetMap (Overpass API)."""
+"""Fetch buildings, trees and roads around the campus from OpenStreetMap (Overpass API)."""
 import json
 import urllib.request
 
-# Generous bbox around the Leonardo campus: shadow casters up to ~250 m outside
-# the analysis area still matter at low sun elevations.
-BBOX = (45.4735, 9.2200, 45.4835, 9.2380)  # (south, west, north, east)
-OUT = "data/osm_cittastudi.json"
+from campus_config import FETCH_BBOX as BBOX, OSM_FILE as OUT
 
 QUERY = f"""
 [out:json][timeout:90];
@@ -58,8 +55,6 @@ def main():
         counts[key] = counts.get(key, 0) + 1
     print("fetched:", counts)
 
-    import os
-    os.makedirs("data", exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
     print("wrote", OUT)

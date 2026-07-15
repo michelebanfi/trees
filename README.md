@@ -1,19 +1,39 @@
-# PoliMi Città Studi — sun exposure model
+# PoliMi campuses — sun exposure model
 
-Quantifies average direct-sun exposure on the ground around the Leonardo campus
-(a self-hosted take on what ShadowMap does), to later evaluate where planting
-trees would reduce summer sun exposure the most.
+Quantifies average direct-sun exposure on the ground around the PoliMi
+campuses (a self-hosted take on what ShadowMap does), to later evaluate where
+planting trees would reduce summer sun exposure the most.
 
-## Pipeline
+## Two campuses
 
-| step | script | output |
+Every script is campus-parameterized via the `CAMPUS` env var
+(`campus_config.py` holds bboxes, projection origin, POIs, DBT tiles):
+
+    CAMPUS=leonardo python3 fetch_osm.py    # Città Studi (default)
+    CAMPUS=bovisa   python3 fetch_osm.py    # Bovisa (both building clusters)
+
+Data lands in `data/<campus>/`, figures in `output/<campus>/`. The Leonardo
+analysis box covers campus **plus every walking corridor carrying ≥ 1 % of PT
+arrivals** (Lambrate FS included); Bovisa covers the La Masa and Durando
+clusters plus 450 m. Campus buildings are drawn light-blue on all maps
+(non-PoliMi buildings gray — the heuristic deliberately excludes the
+Università Statale buildings that share Città Studi).
+
+## Pipeline (per campus)
+
+| step | script | output in `data|output/<campus>/` |
 |---|---|---|
-| 1. fetch OSM buildings/trees/roads (Overpass) | `fetch_osm.py` | `data/osm_cittastudi.json` |
-| 2. compute yearly shadow model | `compute_sun_hours.py` | `data/sun_hours.npz` |
-| 3. render heatmap | `render_map.py` | `output/sun_map_annual.png` |
+| 1. fetch OSM buildings/trees/roads (Overpass) | `fetch_osm.py` | `osm_campus.json` |
+| 2. filter municipality tree census to bbox | `filter_trees.py` | `alberi_filtered.geojson` |
+| 3. fetch OSM ground cover | `fetch_landcover.py` | `osm_landcover.json` |
+| 4. extract DBT heights/trees from DWG tiles | `dbt_extract.py` | `dbt_extract.json` |
+| 5. compute yearly shadow model | `compute_sun_hours.py` | `sun_hours.npz` |
+| 6. render heatmaps | `render_map.py` | `sun_map_*.png`, `heat_map_summer.png` |
+| 7. fetch PT stops + walk network (larger bbox) | `fetch_transit.py` | `osm_transit.json` |
+| 8. pedestrian flows PT → campus + sun overlay | `route_flows.py` | `route_flows.json` |
+| 9. render flow map + corridor ranking | `render_flows.py` | `flow_map_summer.png`, `flow_corridors.png` |
 
-Legacy exploration of the municipality tree dataset: `filter_trees.py`,
-`make_map.py` (the municipality data is still used — see below).
+`make_map.py` is a legacy exploration of the municipality tree dataset.
 
 ## Method
 
@@ -41,22 +61,63 @@ Legacy exploration of the municipality tree dataset: `filter_trees.py`,
   medians (7 m height, 4 m crown).
 - Flat terrain; trees fully opaque in leaf; direct sun only (no diffuse light).
 
-## Validation points
+## Validation points (model v2: DBT heights + semi-transparent crowns)
 
-| point | location | annual | June | December |
+Leonardo:
+
+| point | location | annual | JJA | DJF |
 |---|---|---|---|---|
-| P1 45.478528, 9.231236 | street between PoliMi buildings, no shade | 7.8 h/day | 9.9 | 4.6 |
-| P2 45.478120, 9.228271 | central area with trees | 6.5 h/day | 8.0 | 5.1 |
+| P1 45.478528, 9.231236 | street between PoliMi buildings, no shade | 8.5 h/day | 10.4 | 6.1 |
+| P2 45.478120, 9.228271 | central area with trees | 6.0 h/day | 7.0 | 5.0 |
 
-P2 is ~2 h/day shadier than P1 in summer (tree canopy) but *sunnier* in
-Nov–Jan (bare trees + open space vs. P1's building canyon at low winter sun) —
-the pattern good shading design aims for.
+Bovisa (open ex-industrial fabric — much sunnier than Città Studi):
+
+| point | location | annual | JJA | DJF |
+|---|---|---|---|---|
+| B1 45.504546, 9.157647 | La Masa cluster | 11.2 h/day | 14.1 | 8.1 |
+| B2 45.504890, 9.163209 | Durando cluster | 9.7 h/day | 11.4 | 7.8 |
+
+P2 stays ~3.4 h/day shadier than P1 in summer (tree canopy) while the winter
+gap shrinks to ~1 h (bare crowns transmit 55 %) — summer shade at a modest
+winter cost. Both Bovisa points sit in full sun through the entire 12–14
+lunch window in summer.
+
+## Pedestrian flows (steps 4–6)
+
+Which walking routes PT users take to campus, and how sunny they are:
+
+- **Origins**: every PT access point near campus — metro *street entrances*
+  (Piola M2, Lambrate M2), Lambrate FS, tram/bus stop pairs clustered by name
+  (≤ 650 m from the campus-buildings rectangle; a stop is dropped when a
+  same-mode stop within 300 m sits ≥ 50 m closer — riders stay on board to
+  the closest stop of their line; covered ways such as station underpasses
+  count as fully shaded). Weights = assumed modal split
+  (`MODAL_SPLIT` in `route_flows.py`: metro .55 / train .20 / tram .15 /
+  bus .10 — no public per-stop ATM ridership exists), split evenly within a
+  mode.
+- **Destinations**: the OSM-mapped campus buildings *inside the analysis
+  extent only* (Città Studi; PoliMi sites elsewhere are out of scope), entered
+  at tagged `entrance` nodes where available, weighted by footprint × floors.
+- **Assignment**: shortest walking path (Dijkstra, steps ×1.4) per
+  origin–destination pair on the OSM walk network; flows accumulate per
+  segment. Each used segment then samples the June–August sun-hours /
+  insolation rasters (`bmask` cells skipped).
+- **Metric**: `person_exposure = flow × length × summer insolation` — the
+  corridors whose shading would spare people the most summer sun.
+- **Headline comparison**: the flow-weighted summer sun on walked meters is
+  **5.8 h/day at Leonardo vs 8.9 h/day at Bovisa** (+53 %) — Bovisa's access
+  corridors are far more exposed, so the Leonardo methodology pays off even
+  more there.
 
 ## Next steps
 
-- Canopy transparency (a leafed crown transmits ~10–20 % of direct light).
-- Irradiance weighting (W/m² by sun elevation) instead of binary sun/shade —
-  makes summer-noon shade count more than 8 am sun.
-- Building heights from Milano DBT (Database Topografico) instead of defaults.
 - "Where to plant" optimizer: greedy search for tree positions maximising
-  reduction of summer sun-hours over walkable cells.
+  reduction of summer sun-hours, now weightable by pedestrian flow
+  (`data/route_flows.json`) so shade lands on the busiest corridors.
+- Calibrate `MODAL_SPLIT` / per-station weights (metro share is split evenly
+  across stations, which overweights the M4 stations south of Leonardo);
+  consider logit assignment over k-shortest paths instead of all-or-nothing
+  shortest paths.
+- `natural=wood` polygons (e.g. the La Goccia woods at Bovisa) are not
+  shadow casters — only point trees are; the wooded area west of La Masa
+  therefore reads as full sun.
