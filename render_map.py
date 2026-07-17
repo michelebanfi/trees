@@ -141,12 +141,33 @@ def draw_scalebar(ax, extent):
                 ha="center", fontsize=9, color=INK, zorder=7, path_effects=halo())
 
 
+def _conv_same(a, k):
+    H, W = a.shape
+    kh, kw = k.shape
+    s = (H + kh - 1, W + kw - 1)
+    out = np.fft.irfft2(np.fft.rfft2(a, s) * np.fft.rfft2(k, s), s)
+    return out[kh // 2:kh // 2 + H, kw // 2:kw // 2 + W]
+
+
+def microclimate(absorbed, ground, res, sigma_m=10.0):
+    """What a spot feels depends on its surroundings (a stone path between
+    lawns is cooler than the same stone in an asphalt expanse): normalized
+    Gaussian mixing of absorbed solar over ground cells, ~sigma_m reach."""
+    r = max(1, int(3 * sigma_m / res))
+    yy, xx = np.mgrid[-r:r + 1, -r:r + 1]
+    g = np.exp(-(xx * xx + yy * yy) * (res * res) / (2 * sigma_m ** 2))
+    m = ground.astype(np.float32)
+    num = _conv_same(absorbed * m, g)
+    den = _conv_same(m, g)
+    return np.where(ground, num / np.maximum(den, 1e-9), 0.0)
+
+
 def heat_field(d):
     insol_jja = d["insol"][[5, 6, 7]].mean(axis=0)
     k = np.zeros_like(insol_jja)
     for cls, kk in HEAT_K.items():
         k[d["cover"] == cls] = kk
-    return insol_jja * k
+    return microclimate(insol_jja * k, ~d["bmask"], float(d["res"][0]))
 
 
 def main():
@@ -235,7 +256,7 @@ def main():
                  fontsize=15, color=INK, loc="left", pad=14, fontweight="bold")
     ax.text(0, 1.012, "June–August direct insolation × surface absorption "
             "(asphalt 0.92 · paved 0.75 · sport 0.80 · grass 0.35 · water 0.20) · "
-            "evapotranspiration discounted on vegetation",
+            "10 m neighbourhood mixing · DBT surveyed surfaces",
             transform=ax.transAxes, fontsize=9, color=MUTED)
     fig.savefig(f"{OUT_DIR}/heat_map_summer.png", bbox_inches="tight", facecolor="white")
     plt.close(fig)

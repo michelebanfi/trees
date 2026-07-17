@@ -42,9 +42,12 @@ Università Statale buildings that share Città Studi).
 ## Shading proposal (steps 10–12)
 
 Two equal-budget solutions (constants at the top of `scenarios.py` are
-**placeholder cost guesses** to refine): semi-mature **trees**
-(EUR 1,200 installed, EUR 60/y) vs 6x6 m tensile **shade sails**
-(EUR 250/m² installed, EUR 8/m²/y). A greedy optimizer places objects where
+**placeholder cost guesses** — real sources when needed: Prezzario Regionale
+Opere Pubbliche Lombardia for planting, Forestami reports, tensile-structure
+quotes): semi-mature **trees** (EUR 1,200 installed, EUR 60/y) vs a
+**cable-net canopy** (Würzburg-style triangular sails on catenary cables at
+~7 m, ~60 % coverage; modeled per 8x8 m plan module at EUR 100/m² installed,
+EUR 5/m²/y). A greedy optimizer places objects where
 their June–August shadow removes the most irradiance from flow-weighted
 walked cells (shadow kernels from the NOAA sun positions; the sun field is
 damped after each placement so overlaps don't double-count). Placements are
@@ -53,6 +56,14 @@ post-intervention rasters, from which `indicators.py` computes the
 quantitative indicator table (routes/area in shade, mean sun, surface-
 temperature proxy, trees/green/canopy, costs, time) plus before/after values
 and views at the proposal points A/B/C.
+
+The campus scenarios are *seeded*: `SEED_N` objects are forced within 30 m of
+each proposal point before the remaining budget is optimized globally (the
+benefit sacrificed vs the unconstrained optimum is reported — 0.1 % for
+trees, 4.5 % for sails at EUR 200k). Each point additionally gets an
+independent *local* study (`LOCAL_BUDGET`, default EUR 20k, spent within
+50 m), reported as extra columns in `indicators.md` and rendered in
+`proposal_points_local.png`.
 
 ## Method
 
@@ -70,6 +81,13 @@ and views at the proposal points A/B/C.
 
 ## Data & defaults (the weak points to improve)
 
+- Ground cover: OSM landuse/leisure polygons + buffered OSM roads, then
+  **overridden by the DBT 2D surveyed surface polygons** (`dbt_cover_extract.py`
+  chains the CAD boundary fragments of `B102_PEDONALE`, `G401_AIUOLA_*`,
+  sport/water/parking layers into rings; road areas never close within their
+  layer, so asphalt keeps coming from OSM buffering). Surface heat uses a
+  ~10 m normalized-Gaussian neighbourhood mixing (`microclimate` in
+  `render_map.py`) so a path between lawns reads cooler than one in asphalt.
 - Building heights: only ~29 % of local buildings have OSM `height`/`building:levels`.
   Fallbacks: `levels × 3.2 m + 1` (4.2 m/level for university/hospital/church),
   else per-type defaults (`BUILDING_DEFAULT_H` in `compute_sun_hours.py`).

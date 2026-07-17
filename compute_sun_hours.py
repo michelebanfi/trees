@@ -542,6 +542,33 @@ def build_cover(grid, roads, bmask_full):
                 disc = (xx - x) ** 2 + (yy - y) ** 2 <= r * r
                 cover[i0:i1, j0:j1][disc] = cls
 
+    # DBT 2D surveyed surfaces override the OSM/default guesses where present
+    # (green painted last: aiuole nest inside pedestrian plazas)
+    import os
+    from campus_config import DATA_DIR
+    dbt_cov_path = os.path.join(DATA_DIR, "dbt_cover.json")
+    if os.path.exists(dbt_cov_path):
+        dc = json.load(open(dbt_cov_path))
+        utm2xy = make_utm_to_xy()
+        mineral = np.array([COVER["paved"], COVER["asphalt"],
+                            COVER["footpath"]])
+        n = 0
+        for cname in ("footpath", "asphalt", "sport", "water", "grass"):
+            for ring in dc.get(cname, []):
+                x, y = utm2xy([p[0] for p in ring], [p[1] for p in ring])
+                cells = polygon_cells(grid, np.column_stack([x, y]))
+                if cells is None:
+                    continue
+                sl, inside = cells
+                if cname in ("footpath", "asphalt"):
+                    # DBT mineral surfaces refine mineral guesses only —
+                    # never overwrite OSM-mapped vegetation/water (chained
+                    # pedestrian rings can over-capture)
+                    inside = inside & np.isin(cover[sl], mineral)
+                cover[sl][inside] = COVER[cname]
+                n += 1
+        print(f"DBT 2D cover: {n} surveyed surface polygons applied")
+
     cover[bmask_full] = COVER["building"]
     return cover
 
@@ -592,10 +619,12 @@ def main():
         sc = json.load(open(scen_path))
         for x, y, h, crown in sc.get("trees", []):
             trees.append((x, y, h, crown, False))
+        sail_h = sc.get("sail_h", 4.1)
+        sail_crown = sc.get("sail_crown", 6.8)
         for x, y in sc.get("sails", []):
-            # 6x6 m tensile sail at ~4 m: modeled as a flat "evergreen crown"
-            # of equal area (r 3.4 m, tau 0.15 vs the real ~0.10)
-            trees.append((x, y, 4.1, 6.8, True))
+            # tensile canopy modeled as an "evergreen crown" whose area
+            # equals the module's actual fabric coverage (tau 0.15 ~ 0.10)
+            trees.append((x, y, sail_h, sail_crown, True))
         out_file = OUT_FILE.replace(".npz", f"_{sc['name']}.npz")
         print(f"scenario '{sc['name']}': +{len(sc.get('trees', []))} trees, "
               f"+{len(sc.get('sails', []))} sails -> {out_file}")

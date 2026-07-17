@@ -22,12 +22,13 @@ import numpy as np
 
 from campus_config import CFG, SUN_FILE, FLOWS_FILE, DATA_DIR, OUT_DIR
 from compute_sun_hours import to_xy, load_osm, COVER
-from render_map import polimi_mask, HEAT_K
+from render_map import polimi_mask, HEAT_K, microclimate
 from route_flows import (load_transit, classify_stops, build_destinations,
                          build_graph, dijkstra, nearest_node)
 from scenarios import (dilate, Field, CAMPUS_ZONE_M, BUDGET,
                        TREE_COST, TREE_MAINT, TREE_TIME_Y, TREE_CROWN,
-                       SAIL_COST, SAIL_MAINT, SAIL_TIME_Y, SAIL_SIDE)
+                       SAIL_COST, SAIL_MAINT, SAIL_TIME_Y, SAIL_SIDE,
+                       SAIL_COVERAGE)
 
 SHADE_H = 4.0     # JJA direct sun below this (h/day) counts as "in shade"
 T_AIR = 26.0      # typical Milan JJA afternoon air temperature (deg C)
@@ -59,6 +60,16 @@ class Raster:
         if not self.fld.inside(i, j) or self.bmask[i, j]:
             return None
         return float(self.jja_h[i, j])
+
+    def absorbed(self):
+        """Neighborhood-mixed absorbed solar (kWh/m2/day), cached."""
+        if not hasattr(self, "_absorbed"):
+            k = np.zeros_like(self.jja_i)
+            for cls, kk in HEAT_K.items():
+                k[self.cover == cls] = kk
+            self._absorbed = microclimate(self.jja_i * k, ~self.bmask,
+                                          self.res)
+        return self._absorbed
 
 
 def interbuilding_usage():
@@ -140,11 +151,7 @@ def arrival_exposure(rasters):
 
 
 def surface_temp(R, zone):
-    k = np.zeros_like(R.jja_i)
-    for cls, kk in HEAT_K.items():
-        k[R.cover == cls] = kk
-    T = T_AIR + T_COEF * k * R.jja_i
-    return float(T[zone].mean())
+    return float((T_AIR + T_COEF * R.absorbed())[zone].mean())
 
 
 def main():
@@ -159,6 +166,15 @@ def main():
                 "sails": json.load(open(f"{DATA_DIR}/scenario_sails.json"))}
     n_trees_new = len(scen_pts["trees"]["trees"])
     n_sails_new = len(scen_pts["sails"]["sails"])
+
+    # option B mini-studies: per-point local budget, both solutions
+    local_pts, local_rasters = {}, {}
+    for name in CFG["proposal_points"]:
+        local_pts[name] = {
+            k: json.load(open(f"{DATA_DIR}/scenario_pt{name}_{k}.json"))
+            for k in ("trees", "sails")}
+        local_rasters[name] = {k: Raster(npz_path(f"pt{name}_{k}"))
+                               for k in ("trees", "sails")}
 
     # ---- campus-wide indicators -----------------------------------------
     usage, edges, coord = interbuilding_usage()
@@ -175,7 +191,7 @@ def main():
     green_m2 = float((base.cover[zone] == COVER["grass"]).sum()) * base.res**2
     canopy = {"baseline": 0.0,
               "trees": n_trees_new * math.pi * (TREE_CROWN / 2) ** 2,
-              "sails": n_sails_new * SAIL_SIDE ** 2}
+              "sails": n_sails_new * SAIL_SIDE ** 2 * SAIL_COVERAGE}
     cost = {"baseline": 0.0, "trees": n_trees_new * TREE_COST,
             "sails": n_sails_new * SAIL_COST}
     maint = {"baseline": 0.0, "trees": n_trees_new * TREE_MAINT,
@@ -195,22 +211,27 @@ def main():
              (ii >= 0) & (ii < base.fld.ny) & (jj >= 0) & (jj < base.fld.nx)
         sel = (ii[ok], jj[ok])
         ground = ~base.bmask[sel]
-        row = {}
-        for s, R in rasters.items():
-            k = np.zeros_like(R.jja_i)
-            for cls, kk in HEAT_K.items():
-                k[R.cover == cls] = kk
-            row[s] = {
+
+        def metrics(R):
+            return {
                 "jja_h": float(R.jja_h[sel][ground].mean()),
                 "lunch_min": float(R.jja_mid[sel][ground].mean()),
-                "temp": float((T_AIR + T_COEF * k * R.jja_i)[sel][ground].mean()),
+                "temp": float((T_AIR + T_COEF * R.absorbed())
+                              [sel][ground].mean()),
             }
+
+        row = {s: metrics(R) for s, R in rasters.items()}
+        row["loc_trees"] = metrics(local_rasters[name]["trees"])
+        row["loc_sails"] = metrics(local_rasters[name]["sails"])
         near = {}
         for s, sc in scen_pts.items():
             arr = sc.get("trees", sc.get("sails", []))
             near[s] = sum(1 for p in arr
                           if math.hypot(p[0] - x, p[1] - y) < 40.0)
         row["near"] = near
+        row["n_local"] = {k: len(local_pts[name][k].get("trees",
+                          local_pts[name][k].get("sails", [])))
+                          for k in ("trees", "sails")}
         pts[name] = row
 
     # ---- report -----------------------------------------------------------
@@ -227,7 +248,8 @@ def main():
              f"{SHADE_H:.0f} h/day of direct June-August sun. Surface "
              "temperature is a clear-sky afternoon proxy: "
              f"T = {T_AIR:.0f} degC + {T_COEF} x absorbed direct solar "
-             "(kWh/m2/day). Costs are placeholder estimates.\n")
+             "(kWh/m2/day), mixed over a ~10 m neighbourhood; ground cover "
+             "from the DBT 2D survey. Costs are placeholder estimates.\n")
     L.append("| Indicator | Baseline | Trees | Sails |")
     L.append("|---|---|---|---|")
     L.append(f"| % inter-building routes in shade (JJA) | "
@@ -255,20 +277,41 @@ def main():
     L.append(f"| Implementation time (years) | " + " | ".join(
         f"{time_y[s]:.1f}" for s in SCENARIOS) + " |")
     L.append("")
-    L.append("## Example points (20 m surroundings)\n")
+    sac = {k: 100.0 * (1.0 - scen_pts[k]["benefit"]
+                       / scen_pts[k]["benefit_unseeded"])
+           for k in ("trees", "sails")}
+    L.append(f"The campus scenarios are *seeded*: "
+             f"{scen_pts['trees']['seeded']['A']} trees and "
+             f"{scen_pts['sails']['seeded']['A']} sails are forced within "
+             f"{scen_pts['trees']['seed_radius_m']:.0f} m of each proposal "
+             f"point before the rest of the budget is optimized globally. "
+             f"Cost of that constraint vs the unconstrained optimum: "
+             f"{sac['trees']:.1f}% of total benefit for trees, "
+             f"{sac['sails']:.1f}% for sails.\n")
+    from scenarios import LOCAL_BUDGET, LOCAL_RADIUS_M
+    L.append(f"## Example points (20 m surroundings)\n")
+    L.append(f"Columns 2-3: the seeded EUR-200k campus scenarios. "
+             f"Columns 4-5: independent *local* studies — "
+             f"EUR {LOCAL_BUDGET:,.0f} spent only within "
+             f"{LOCAL_RADIUS_M:.0f} m of the point.\n")
+    PCOLS = [("baseline", "Baseline"), ("trees", "Trees campus"),
+             ("sails", "Sails campus"), ("loc_trees", "Trees local"),
+             ("loc_sails", "Sails local")]
     for name, row in pts.items():
         la, lo = CFG["proposal_points"][name]
-        L.append(f"### Point {name} ({la:.6f}, {lo:.6f}) — "
-                 f"{row['near']['trees']} new trees / "
-                 f"{row['near']['sails']} sails within 40 m\n")
-        L.append("| | Baseline | Trees | Sails |")
-        L.append("|---|---|---|---|")
+        L.append(f"### Point {name} ({la:.6f}, {lo:.6f}) — campus scenario: "
+                 f"{row['near']['trees']} trees / {row['near']['sails']} "
+                 f"sails within 40 m · local study: "
+                 f"{row['n_local']['trees']} trees / "
+                 f"{row['n_local']['sails']} sails\n")
+        L.append("| | " + " | ".join(lbl for _, lbl in PCOLS) + " |")
+        L.append("|---|" + "---|" * len(PCOLS))
         L.append("| Direct sun JJA (h/day) | " + " | ".join(
-            f"{row[s]['jja_h']:.1f}" for s in SCENARIOS) + " |")
+            f"{row[k]['jja_h']:.1f}" for k, _ in PCOLS) + " |")
         L.append("| Lunch window in sun (min/120) | " + " | ".join(
-            f"{row[s]['lunch_min']:.0f}" for s in SCENARIOS) + " |")
+            f"{row[k]['lunch_min']:.0f}" for k, _ in PCOLS) + " |")
         L.append("| Surface temperature (degC) | " + " | ".join(
-            f"{row[s]['temp']:.1f}" for s in SCENARIOS) + " |")
+            f"{row[k]['temp']:.1f}" for k, _ in PCOLS) + " |")
         L.append("")
     text = "\n".join(L)
     with open(f"{OUT_DIR}/indicators.md", "w", encoding="utf-8") as f:
@@ -276,18 +319,46 @@ def main():
     print(text)
     print(f"wrote {OUT_DIR}/indicators.md")
 
-    render_points(rasters, scen_pts, pts)
+    def campus_cols(name):
+        return [
+            ("baseline", rasters["baseline"], None, None,
+             pts[name]["baseline"]["jja_h"]),
+            ("trees", rasters["trees"], scen_pts["trees"]["trees"],
+             "trees", pts[name]["trees"]["jja_h"]),
+            ("sails", rasters["sails"], scen_pts["sails"]["sails"],
+             "sails", pts[name]["sails"]["jja_h"]),
+        ]
+
+    def local_cols(name):
+        return [
+            ("baseline", rasters["baseline"], None, None,
+             pts[name]["baseline"]["jja_h"]),
+            ("local trees", local_rasters[name]["trees"],
+             local_pts[name]["trees"]["trees"], "trees",
+             pts[name]["loc_trees"]["jja_h"]),
+            ("local sails", local_rasters[name]["sails"],
+             local_pts[name]["sails"]["sails"], "sails",
+             pts[name]["loc_sails"]["jja_h"]),
+        ]
+
+    points_figure("proposal_points.png",
+                  f"Proposal points — campus scenarios (EUR "
+                  f"{BUDGET / 1000:.0f}k) — {CFG['label']}", campus_cols)
+    from scenarios import LOCAL_BUDGET, LOCAL_RADIUS_M
+    points_figure("proposal_points_local.png",
+                  f"Proposal points — local studies (EUR "
+                  f"{LOCAL_BUDGET / 1000:.0f}k within "
+                  f"{LOCAL_RADIUS_M:.0f} m) — {CFG['label']}", local_cols)
 
 
-def render_points(rasters, scen_pts, pts):
+def points_figure(fname, title, cols_for):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.colors import LinearSegmentedColormap, to_rgba
     from matplotlib.patches import Circle, Rectangle
-    from render_map import SUN_RAMP, INK, MUTED, BUILDING_FILL
+    from render_map import SUN_RAMP, INK, BUILDING_FILL
 
-    base = rasters["baseline"]
     cmap = LinearSegmentedColormap.from_list("sun", SUN_RAMP)
     Z = 55.0  # half-window (m)
     names = list(CFG["proposal_points"].keys())
@@ -297,8 +368,7 @@ def render_points(rasters, scen_pts, pts):
     for r, name in enumerate(names):
         la, lo = CFG["proposal_points"][name]
         x, y = to_xy(la, lo)
-        for c, scen in enumerate(SCENARIOS):
-            R = rasters[scen]
+        for c, (label, R, objects, kind, hval) in enumerate(cols_for(name)):
             ax = axes[r, c]
             field = np.ma.masked_where(R.bmask, R.jja_h)
             ax.imshow(field, extent=R.extent, cmap=cmap, vmin=0, vmax=14,
@@ -306,29 +376,25 @@ def render_points(rasters, scen_pts, pts):
             b = np.zeros((*R.bmask.shape, 4))
             b[R.bmask] = to_rgba(BUILDING_FILL)
             ax.imshow(b, extent=R.extent, interpolation="nearest", zorder=2)
-            if scen != "baseline":
-                arr = scen_pts[scen].get("trees",
-                                         scen_pts[scen].get("sails", []))
-                for p in arr:
-                    if abs(p[0] - x) > Z + 8 or abs(p[1] - y) > Z + 8:
-                        continue
-                    if scen == "trees":
-                        ax.add_patch(Circle((p[0], p[1]), TREE_CROWN / 2,
-                                            fill=False, ec="#2e7d32", lw=1.6,
-                                            zorder=4))
-                    else:
-                        ax.add_patch(Rectangle(
-                            (p[0] - SAIL_SIDE / 2, p[1] - SAIL_SIDE / 2),
-                            SAIL_SIDE, SAIL_SIDE, fill=False, ec="#37474f",
-                            lw=1.6, zorder=4))
+            for p in objects or []:
+                if abs(p[0] - x) > Z + 8 or abs(p[1] - y) > Z + 8:
+                    continue
+                if kind == "trees":
+                    ax.add_patch(Circle((p[0], p[1]), TREE_CROWN / 2,
+                                        fill=False, ec="#2e7d32", lw=1.6,
+                                        zorder=4))
+                else:
+                    ax.add_patch(Rectangle(
+                        (p[0] - SAIL_SIDE / 2, p[1] - SAIL_SIDE / 2),
+                        SAIL_SIDE, SAIL_SIDE, fill=False, ec="#37474f",
+                        lw=1.6, zorder=4))
             ax.plot(x, y, "x", ms=10, mew=2.6, color=INK, zorder=6)
             ax.set_xlim(x - Z, x + Z); ax.set_ylim(y - Z, y + Z)
             ax.set_aspect("equal"); ax.set_xticks([]); ax.set_yticks([])
             for sp in ax.spines.values():
                 sp.set_visible(False)
-            h = pts[name][scen]["jja_h"]
             ax.set_title(f"{'Point ' + name + ' — ' if c == 0 else ''}"
-                         f"{scen} · {h:.1f} h/day",
+                         f"{label} · {hval:.1f} h/day",
                          fontsize=10.5, color=INK, loc="left",
                          fontweight="bold" if c == 0 else "normal")
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(0, 14))
@@ -337,12 +403,10 @@ def render_points(rasters, scen_pts, pts):
                  color=INK)
     cb.ax.tick_params(labelsize=9, colors=INK)
     cb.outline.set_visible(False)
-    fig.suptitle(f"Before / after at the proposal points — {CFG['label']}",
-                 fontsize=14, x=0.075, y=0.97, ha="left", fontweight="bold",
-                 color=INK)
-    fig.savefig(f"{OUT_DIR}/proposal_points.png", bbox_inches="tight",
-                facecolor="white")
-    print(f"wrote {OUT_DIR}/proposal_points.png")
+    fig.suptitle(title, fontsize=14, x=0.075, y=0.97, ha="left",
+                 fontweight="bold", color=INK)
+    fig.savefig(f"{OUT_DIR}/{fname}", bbox_inches="tight", facecolor="white")
+    print(f"wrote {OUT_DIR}/{fname}")
 
 
 if __name__ == "__main__":

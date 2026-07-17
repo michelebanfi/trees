@@ -31,13 +31,18 @@ TREE_MAINT = 60.0           # EUR/year (watering, pruning)
 TREE_TIME_Y = 0.5           # one planting season
 TREE_H, TREE_CROWN = 8.0, 6.0   # planted size (m); grows further over ~10 y
 
-SAIL_SIDE = 6.0             # one module is 6x6 m
-SAIL_COST_M2 = 250.0        # installed (posts, foundations, tensile membrane)
-SAIL_COST = SAIL_COST_M2 * SAIL_SIDE ** 2      # 9,000 EUR / module
-SAIL_MAINT_M2 = 8.0         # EUR/m2/year (cleaning, retension, winter checks)
+# cable-net canopy (Wurzburg-style): light triangular sails strung on
+# catenary cables from poles/facades over walking areas, with gaps.
+SAIL_SIDE = 8.0             # one module covers an 8x8 m *plan* area
+SAIL_COVERAGE = 0.6         # sail fabric covers ~60% of the plan area
+SAIL_COST_M2 = 100.0        # per plan m2, hung from existing/light supports
+SAIL_COST = SAIL_COST_M2 * SAIL_SIDE ** 2      # 6,400 EUR / module
+SAIL_MAINT_M2 = 5.0         # EUR/plan-m2/year (seasonal rigging, cleaning)
 SAIL_MAINT = SAIL_MAINT_M2 * SAIL_SIDE ** 2
 SAIL_TIME_Y = 1.0           # design + permits + installation
-SAIL_H = 3.9                # canopy height (m)
+SAIL_H = 7.2                # canopy height (m)
+# the fabric (60% of 64 m2) is modeled as one equivalent canopy blob
+SAIL_EFF_R = math.sqrt(SAIL_SIDE ** 2 * SAIL_COVERAGE / math.pi)  # ~3.5 m
 
 # --- placement rules ---------------------------------------------------------
 CAMPUS_ZONE_M = 60.0        # "campus grounds" = within this of a campus bldg
@@ -50,6 +55,15 @@ KERNEL_MAX_M = 36.0         # ignore shadows cast farther than this
 KERNEL_MIN_ELEV = 12.0      # low sun shadows land far away — skip
 OPACITY = {"trees": 0.85, "sails": 0.90}
 MIN_GAIN_FRAC = 0.05        # stop when benefit < 5% of the first placement
+
+# option A: guarantee visible interventions at the proposal points, then
+# spend the remaining budget globally
+SEED_RADIUS_M = 30.0
+SEED_N = {"trees": 5, "sails": 2}   # forced per proposal point
+
+# option B: independent per-point mini-studies (own budget, own area)
+LOCAL_BUDGET = 20_000.0
+LOCAL_RADIUS_M = 50.0
 
 
 def conv_same(a, k):
@@ -141,24 +155,32 @@ def shadow_kernel(hc, footprint_r_m, opacity, square):
     return K / wsum
 
 
-def greedy(kind, n_max, cand, W, S, kernel, spacing):
-    """Place up to n_max objects; returns [(x,y)...] and benefit estimate."""
+def greedy(n_max, cand, W, S, kernel, spacing, allowed=None,
+           stop_frac=MIN_GAIN_FRAC):
+    """Place up to n_max objects; returns [(i,j)...] and benefit estimate.
+
+    Mutates `cand` (spacing) and `S` (shading) IN PLACE so that sequential
+    phases compose (seeds first, then the global remainder). `allowed`
+    restricts where this phase may *select* without narrowing the shared
+    candidate mask; stop_frac=None disables the diminishing-returns stop
+    (used to force seed placements)."""
     K = kernel
     R = K.shape[0] // 2
     Kf = K[::-1, ::-1]
-    S = S.copy()
-    cand = cand.copy()
     WS = W * S
     B = conv_same(WS, Kf)
     placed, benefit = [], 0.0
     first = None
     for _ in range(n_max):
-        Bm = np.where(cand, B, -1.0)
+        sel = cand if allowed is None else (cand & allowed)
+        Bm = np.where(sel, B, -1.0)
         i, j = np.unravel_index(int(np.argmax(Bm)), Bm.shape)
         gain = Bm[i, j]
+        if gain <= 0:
+            break
         if first is None:
             first = gain
-        if gain <= 0 or gain < first * MIN_GAIN_FRAC:
+        if stop_frac is not None and gain < first * stop_frac:
             break
         placed.append((i, j))
         benefit += gain
@@ -229,26 +251,77 @@ def main():
                                            TREE_CROWN / 2, OPACITY["trees"],
                                            square=False),
                   n_trees, TREE_SPACING),
-        "sails": (cand_sail, shadow_kernel(SAIL_H, SAIL_SIDE / 2,
-                                           OPACITY["sails"], square=True),
+        "sails": (cand_sail, shadow_kernel(SAIL_H, SAIL_EFF_R,
+                                           OPACITY["sails"], square=False),
                   n_sails, SAIL_SPACING),
     }
 
-    for kind, (cand, kernel, n_max, spacing) in specs.items():
-        placed, benefit = greedy(kind, n_max, cand, W, S, kernel, spacing)
+    from compute_sun_hours import to_xy
+    pts_xy = {name: to_xy(la, lo)
+              for name, (la, lo) in CFG["proposal_points"].items()}
+    II, JJ = np.mgrid[0:fld.ny, 0:fld.nx]
+
+    def disc_mask(x, y, r_m):
+        i0, j0 = fld.cell(x, y)
+        return (II - i0) ** 2 + (JJ - j0) ** 2 <= (r_m / RES) ** 2
+
+    def payload(kind, placed):
         pts = [fld.xy(i, j) for i, j in placed]
-        out = {"name": kind, "budget": BUDGET,
-               "unit_cost": TREE_COST if kind == "trees" else SAIL_COST}
         if kind == "trees":
-            out["trees"] = [[round(x, 1), round(y, 1), TREE_H, TREE_CROWN]
-                            for x, y in pts]
-        else:
-            out["sails"] = [[round(x, 1), round(y, 1)] for x, y in pts]
+            return {"trees": [[round(x, 1), round(y, 1), TREE_H, TREE_CROWN]
+                              for x, y in pts]}
+        return {"sails": [[round(x, 1), round(y, 1)] for x, y in pts],
+                "sail_h": SAIL_H, "sail_crown": round(2 * SAIL_EFF_R, 1)}
+
+    for kind, (cand, kernel, n_max, spacing) in specs.items():
+        unit = TREE_COST if kind == "trees" else SAIL_COST
+
+        # reference: unseeded, purely global optimum (for the sacrifice %)
+        S_ref, c_ref = S.copy(), cand.copy()
+        _, ref_benefit = greedy(n_max, c_ref, W, S_ref, kernel, spacing)
+
+        # option A: force SEED_N objects near each proposal point, then
+        # spend the remaining budget globally
+        S_run, c_run = S.copy(), cand.copy()
+        placed, benefit, seeded = [], 0.0, {}
+        for name, (x, y) in pts_xy.items():
+            p, b = greedy(SEED_N[kind], c_run, W, S_run, kernel, spacing,
+                          allowed=disc_mask(x, y, SEED_RADIUS_M),
+                          stop_frac=None)
+            placed += p
+            benefit += b
+            seeded[name] = len(p)
+        p, b = greedy(n_max - len(placed), c_run, W, S_run, kernel, spacing)
+        placed += p
+        benefit += b
+
+        out = {"name": kind, "budget": BUDGET, "unit_cost": unit,
+               "seeded": seeded, "seed_radius_m": SEED_RADIUS_M,
+               "benefit": benefit, "benefit_unseeded": ref_benefit}
+        out.update(payload(kind, placed))
         path = f"{DATA_DIR}/scenario_{kind}.json"
         json.dump(out, open(path, "w"))
-        print(f"{kind}: placed {len(placed)}/{n_max} "
-              f"(EUR {len(placed) * out['unit_cost']:,.0f}), "
-              f"benefit score {benefit:.1f} -> {path}")
+        sac = 100.0 * (1.0 - benefit / ref_benefit)
+        print(f"{kind}: {len(placed)}/{n_max} placed "
+              f"(EUR {len(placed) * unit:,.0f}), seeded {seeded}, "
+              f"benefit {benefit:.1f} vs unseeded {ref_benefit:.1f} "
+              f"(sacrifice {sac:.1f}%) -> {path}")
+
+        # option B: independent per-point mini-studies (own budget & area)
+        n_local = int(LOCAL_BUDGET // unit)
+        for name, (x, y) in pts_xy.items():
+            S_l, c_l = S.copy(), cand.copy()
+            p, b = greedy(n_local, c_l, W, S_l, kernel, spacing,
+                          allowed=disc_mask(x, y, LOCAL_RADIUS_M),
+                          stop_frac=None)
+            outp = {"name": f"pt{name}_{kind}", "budget": LOCAL_BUDGET,
+                    "unit_cost": unit, "radius_m": LOCAL_RADIUS_M,
+                    "benefit": b}
+            outp.update(payload(kind, p))
+            lpath = f"{DATA_DIR}/scenario_pt{name}_{kind}.json"
+            json.dump(outp, open(lpath, "w"))
+            print(f"  local {name}/{kind}: {len(p)}/{n_local} placed "
+                  f"(EUR {len(p) * unit:,.0f}) -> {lpath}")
 
     render_placements(d, fld, pmask)
 
@@ -266,7 +339,9 @@ def render_placements(d, fld, pmask):
     cmap = LinearSegmentedColormap.from_list("sun", SUN_RAMP)
     fig, axes = plt.subplots(1, 2, figsize=(16, 8), dpi=170)
     for ax, kind, color, label in ((axes[0], "trees", "#2e7d32", "new tree"),
-                                   (axes[1], "sails", "#455a64", "sail 6x6 m")):
+                                   (axes[1], "sails", "#455a64",
+                                    f"net module {SAIL_SIDE:.0f}x"
+                                    f"{SAIL_SIDE:.0f} m")):
         sc = json.load(open(f"{DATA_DIR}/scenario_{kind}.json"))
         field = np.ma.masked_where(d["bmask"], jja)
         ax.imshow(field, extent=extent, cmap=cmap, vmin=0, vmax=14,
