@@ -33,37 +33,68 @@ Università Statale buildings that share Città Studi).
 | 8. pedestrian flows PT → campus + sun overlay | `route_flows.py` | `route_flows.json` |
 | 9. render flow map + corridor ranking | `render_flows.py` | `flow_map_summer.png`, `flow_corridors.png` |
 
-| 10. optimize shading placements (trees / sails) | `scenarios.py` | `scenario_*.json`, `proposal_placements.png` |
-| 11. exact re-simulation per scenario | `SCENARIO=data/<c>/scenario_trees.json python3 compute_sun_hours.py` | `sun_hours_<scenario>.npz` |
-| 12. proposal indicators + point views | `indicators.py` | `indicators.md`, `proposal_points.png` |
+| 10. campus shading placements (trees / sails) | `scenarios.py` | `scenario_trees.json`, `scenario_sails.json`, `proposal_placements.png` |
+| 11. campus re-simulation | `SCENARIO=data/<c>/scenario_trees.json python3 compute_sun_hours.py` (× trees, sails) | `sun_hours_<scenario>.npz` |
+| 12. per-point cost-benefit scenarios | `point_studies.py` | `scenario_pt{A,B,C}_{trees,sails}_{25,50,100}.json` |
+| 13. per-point re-simulations (windowed, fast) | `SCENARIO=data/<c>/scenario_pt*.json python3 compute_sun_hours.py` (× 18) | `sun_hours_pt*.npz` |
+| 14. indicators + point views + curves + activity-area ranking | `indicators.py` (reads `areas.geojson`) | `indicators.md`, `proposal_points.png`, `cost_benefit.png`, `activity_areas.png` |
 
 `make_map.py` is a legacy exploration of the municipality tree dataset.
 
-## Shading proposal (steps 10–12)
+## Shading proposal (steps 10–14)
 
-Two equal-budget solutions (constants at the top of `scenarios.py` are
-**placeholder cost guesses** — real sources when needed: Prezzario Regionale
-Opere Pubbliche Lombardia for planting, Forestami reports, tensile-structure
-quotes): semi-mature **trees** (EUR 1,200 installed, EUR 60/y) vs a
-**cable-net canopy** (Würzburg-style triangular sails on catenary cables at
-~7 m, ~60 % coverage; modeled per 8x8 m plan module at EUR 100/m² installed,
-EUR 5/m²/y). A greedy optimizer places objects where
-their June–August shadow removes the most irradiance from flow-weighted
-walked cells (shadow kernels from the NOAA sun positions; the sun field is
-damped after each placement so overlaps don't double-count). Placements are
-then fed back into the ray-marching model (`SCENARIO=` env var) for exact
-post-intervention rasters, from which `indicators.py` computes the
-quantitative indicator table (routes/area in shade, mean sun, surface-
-temperature proxy, trees/green/canopy, costs, time) plus before/after values
-and views at the proposal points A/B/C.
+Two solutions are compared: semi-mature **trees** and a **velario** (a large
+translucent tensile shade canopy strung over a whole plaza — the reference
+typology, larger and more transparent than discrete shade sails).
 
-The campus scenarios are *seeded*: `SEED_N` objects are forced within 30 m of
-each proposal point before the remaining budget is optimized globally (the
-benefit sacrificed vs the unconstrained optimum is reported — 0.1 % for
-trees, 4.5 % for sails at EUR 200k). Each point additionally gets an
-independent *local* study (`LOCAL_BUDGET`, default EUR 20k, spent within
-50 m), reported as extra columns in `indicators.md` and rendered in
-`proposal_points_local.png`.
+**Cost basis (real sources, see `indicators.md`):** trees **EUR 500/tree**
+all-in on a paved urban site (Forestami program figures; the Prezzario
+Regionale Lombardia 2026 bare supply+plant rate is EUR 129/tree), EUR 100/tree/y
+maintenance; **velario EUR 150/m²** of covered plan area (HDPE shade-cloth on
+steel masts, central of a EUR 120–200 range; PVC membrane alternative
+EUR 250–450/m²), EUR 12/m²/y maintenance. All figures are cited in the report's
+Cost-basis section and are planning-grade (confirm with quotes before tender).
+
+**Velario model:** a flat translucent canopy at ~6 m with **28 % net
+direct-sun transmission** (gaps + HDPE fabric). In `compute_sun_hours.py` it is
+a dedicated sheet layer (`sail_cells` + `sail_h` + `sail_tau` in the scenario
+JSON): a ground cell is attenuated when its sun ray crosses the canopy plane
+inside the footprint (offset computed directly, so a thin sheet is never
+over-stepped at high sun — unlike the old crown-blob sails).
+
+**Campus context (steps 10–11):** a greedy optimizer places trees / legacy 8×8
+sail modules where their June–August shadow removes the most irradiance from
+flow-weighted walked cells (sun field damped after each placement so overlaps
+don't double-count). Kept only as context — a localized intervention barely
+moves campus-wide averages. Scenarios are *seeded* (`SEED_N` objects forced
+within 30 m of each point before the rest is optimized globally).
+
+**Activity areas (`activity_areas.py`, reported by `indicators.py`):** because
+the whole-campus averages dilute small interventions, the campus indicators are
+*also* computed over the union of hand-mapped walkable / dwell polygons
+(`data/<campus>/areas.geojson`, ~59,000 m² — the global figures are kept too).
+Each polygon is then scored on **sun exposure** (baseline JJA h/day), **area**,
+and **centrality** (distance from the activity-area centroid) into an
+equal-weight **priority** (0–1), to point future work at the areas that matter
+most. Output: a ranking table in `indicators.md` plus `activity_areas.png` (map
+coloured by priority + a sun-vs-centrality bubble chart, bubble size = area).
+
+**Per-point cost-benefit (steps 12–14, the focus):** `point_studies.py` reads
+hand-drawn shading footprints from `data/<campus>/placements.geojson` (one
+polygon/loop per point, mapped to the nearest A/B/C — A and B are horizontal
+corridor rectangles, C an irregular N–S corridor loop). The **velario** fills
+the footprint; **trees** are planted in **two rows along the long edges,
+leaving a clear path down the middle**. With **no budget cap** it builds both at
+**25 / 50 / 100 %** of the structure (coverage grows along the corridor from the
+centre), and all metrics are scored over the ground of the full footprint. Each
+scenario carries a rectangular receptor `window` (`[lat, lon, half_x_m,
+half_y_m]`) so `compute_sun_hours.py` re-simulates only a small box around the
+structure (obstacles stay full-grid) — seconds per run. `indicators.py` turns the 18 re-sims into per-point
+cost-benefit tables (cost, maintenance, JJA sun removed, lunch window, %
+in shade, surface-temperature proxy, EUR per h/day removed) and the
+`cost_benefit.png` curves. Headline: trees remove summer sun ~9× cheaper per
+h/day than the velario; the velario's value is shading hard paving without
+consuming ground and giving full shade from day one.
 
 ## Method
 

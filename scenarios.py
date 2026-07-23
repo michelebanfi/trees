@@ -26,13 +26,14 @@ from compute_sun_hours import (RES, LAT0, LON0, load_osm, solar_position,
 # --- COST ASSUMPTIONS (rough Milan figures — adjust freely) -----------------
 BUDGET = 200_000.0          # implementation budget per solution (EUR)
 
-TREE_COST = 1_200.0         # semi-mature tree, planted (pit, stake, 2y care)
-TREE_MAINT = 60.0           # EUR/year (watering, pruning)
-TREE_TIME_Y = 0.5           # one planting season
+TREE_COST = 500.0           # all-in, paved urban site (Forestami; see cost basis)
+TREE_MAINT = 100.0          # EUR/year, establishment years (Forestami)
+TREE_TIME_Y = 0.5           # one planting season (establishment ~3 y)
 TREE_H, TREE_CROWN = 8.0, 6.0   # planted size (m); grows further over ~10 y
 
 # cable-net canopy (Wurzburg-style): light triangular sails strung on
 # catenary cables from poles/facades over walking areas, with gaps.
+# --- legacy 8x8 module (kept only for the campus-wide sails column) ---
 SAIL_SIDE = 8.0             # one module covers an 8x8 m *plan* area
 SAIL_COVERAGE = 0.6         # sail fabric covers ~60% of the plan area
 SAIL_COST_M2 = 100.0        # per plan m2, hung from existing/light supports
@@ -43,6 +44,19 @@ SAIL_TIME_Y = 1.0           # design + permits + installation
 SAIL_H = 7.2                # canopy height (m)
 # the fabric (60% of 64 m2) is modeled as one equivalent canopy blob
 SAIL_EFF_R = math.sqrt(SAIL_SIDE ** 2 * SAIL_COVERAGE / math.pi)  # ~3.5 m
+
+# --- velario: plaza-scale translucent tensile canopy (the point studies) ----
+# A large contiguous shade canopy strung over a whole plaza (see the reference
+# render): larger area, higher transparency than the small opaque modules.
+# Modeled as a flat translucent sheet at VELARIO_H with net direct-sun
+# transmission VELARIO_TAU (gaps + fabric). Cost is per m2 of covered *plan*
+# area. Figures are refined from real sources in indicators.py's cost basis.
+VELARIO_H = 6.0             # canopy height above the plaza (m)
+VELARIO_TAU = 0.28          # net direct-sun transmission (0.85 cover x ~0.18 HDPE ~ 0.28)
+VELARIO_COVERAGE = 0.85     # areal fabric coverage of the footprint (reporting)
+VELARIO_COST_M2 = 150.0     # EUR / plan-m2 installed, HDPE sail on steel masts (central)
+VELARIO_MAINT_M2 = 12.0     # EUR / plan-m2 / year (~3-5% capex: rigging, cleaning, fabric)
+VELARIO_TIME_Y = 1.0        # design + permits (Soprintendenza) + install (~4-9 months)
 
 # --- placement rules ---------------------------------------------------------
 CAMPUS_ZONE_M = 60.0        # "campus grounds" = within this of a campus bldg
@@ -56,14 +70,11 @@ KERNEL_MIN_ELEV = 12.0      # low sun shadows land far away — skip
 OPACITY = {"trees": 0.85, "sails": 0.90}
 MIN_GAIN_FRAC = 0.05        # stop when benefit < 5% of the first placement
 
-# option A: guarantee visible interventions at the proposal points, then
-# spend the remaining budget globally
+# guarantee visible interventions at the proposal points, then spend the
+# remaining campus budget globally (the per-point cost-benefit curves live in
+# point_studies.py)
 SEED_RADIUS_M = 30.0
 SEED_N = {"trees": 5, "sails": 2}   # forced per proposal point
-
-# option B: independent per-point mini-studies (own budget, own area)
-LOCAL_BUDGET = 20_000.0
-LOCAL_RADIUS_M = 50.0
 
 
 def conv_same(a, k):
@@ -280,8 +291,8 @@ def main():
         S_ref, c_ref = S.copy(), cand.copy()
         _, ref_benefit = greedy(n_max, c_ref, W, S_ref, kernel, spacing)
 
-        # option A: force SEED_N objects near each proposal point, then
-        # spend the remaining budget globally
+        # force SEED_N objects near each proposal point, then spend the
+        # remaining budget globally
         S_run, c_run = S.copy(), cand.copy()
         placed, benefit, seeded = [], 0.0, {}
         for name, (x, y) in pts_xy.items():
@@ -307,22 +318,9 @@ def main():
               f"benefit {benefit:.1f} vs unseeded {ref_benefit:.1f} "
               f"(sacrifice {sac:.1f}%) -> {path}")
 
-        # option B: independent per-point mini-studies (own budget & area)
-        n_local = int(LOCAL_BUDGET // unit)
-        for name, (x, y) in pts_xy.items():
-            S_l, c_l = S.copy(), cand.copy()
-            p, b = greedy(n_local, c_l, W, S_l, kernel, spacing,
-                          allowed=disc_mask(x, y, LOCAL_RADIUS_M),
-                          stop_frac=None)
-            outp = {"name": f"pt{name}_{kind}", "budget": LOCAL_BUDGET,
-                    "unit_cost": unit, "radius_m": LOCAL_RADIUS_M,
-                    "benefit": b}
-            outp.update(payload(kind, p))
-            lpath = f"{DATA_DIR}/scenario_pt{name}_{kind}.json"
-            json.dump(outp, open(lpath, "w"))
-            print(f"  local {name}/{kind}: {len(p)}/{n_local} placed "
-                  f"(EUR {len(p) * unit:,.0f}) -> {lpath}")
-
+    # Per-point studies (the capped local mini-studies that used to live here
+    # are superseded by point_studies.py: uncapped cost-benefit curves with the
+    # velario canopy typology).
     render_placements(d, fld, pmask)
 
 

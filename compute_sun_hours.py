@@ -574,8 +574,16 @@ def build_cover(grid, roads, bmask_full):
 
 
 # --- shadow / sun fraction ---------------------------------------------------
-def sun_fraction(BLD, ET, EB, DT, DB, rec, elev, az, hmax, tau_decid):
-    """Fraction of direct beam reaching the ground, per receptor cell."""
+def sun_fraction(BLD, ET, EB, DT, DB, rec, elev, az, hmax, tau_decid,
+                 SAIL=None, sail_h=0.0, sail_tau=1.0):
+    """Fraction of direct beam reaching the ground, per receptor cell.
+
+    If SAIL (a padded boolean canopy-footprint mask) is given, cells whose
+    sun ray crosses the canopy plane (a thin horizontal sheet at height
+    ``sail_h``) inside the footprint are attenuated by ``sail_tau``. Because
+    the canopy is a single flat plane, the crossing offset is computed
+    directly (L = sail_h / tan(elev) toward the sun) instead of relying on the
+    ray-march step spacing, which would over-step a thin sheet at high sun."""
     r0, r1, c0, c1 = rec
     tanel = math.tan(math.radians(elev))
     dx, dy = math.sin(math.radians(az)), math.cos(math.radians(az))
@@ -599,6 +607,13 @@ def sun_fraction(BLD, ET, EB, DT, DB, rec, elev, az, hmax, tau_decid):
     f = (~bhit).astype(np.float32)
     f *= np.where(ehit, TAU_LEAF, 1.0)
     f *= np.where(dhit, tau_decid, 1.0)
+    if SAIL is not None and tanel > 1e-6:
+        kH = sail_h / (RES * tanel)                 # cells toward sun to plane
+        ox, oy = int(round(kH * dx)), int(round(-kH * dy))
+        rs0, rs1, cs0, cs1 = r0 + oy, r1 + oy, c0 + ox, c1 + ox
+        if rs0 >= 0 and rs1 <= SAIL.shape[0] and cs0 >= 0 and cs1 <= SAIL.shape[1]:
+            shit = SAIL[rs0:rs1, cs0:cs1] & ~bhit   # canopy only where lit
+            f = np.where(shit, f * sail_tau, f)
     return f
 
 
@@ -614,33 +629,65 @@ def main():
     # optional intervention scenario: extra trees / shade sails as obstacles
     import os
     out_file = OUT_FILE
+    sail_cells = []                 # velario canopy footprint (x, y per cell)
+    sail_h_v, sail_tau_v = 6.0, 0.28
+    window = None                   # [lat, lon, half_m]: restrict receptor box
     scen_path = os.environ.get("SCENARIO")
     if scen_path:
         sc = json.load(open(scen_path))
         for x, y, h, crown in sc.get("trees", []):
             trees.append((x, y, h, crown, False))
-        sail_h = sc.get("sail_h", 4.1)
-        sail_crown = sc.get("sail_crown", 6.8)
+        # legacy point-module sails (kept for the campus scenario) -> crowns
+        leg_h = sc.get("sail_h", 4.1)
+        leg_crown = sc.get("sail_crown", 6.8)
         for x, y in sc.get("sails", []):
-            # tensile canopy modeled as an "evergreen crown" whose area
-            # equals the module's actual fabric coverage (tau 0.15 ~ 0.10)
-            trees.append((x, y, sail_h, sail_crown, True))
+            trees.append((x, y, leg_h, leg_crown, True))
+        # velario: a large translucent canopy over a plaza (flat sheet layer)
+        sail_cells = sc.get("sail_cells", [])
+        sail_h_v = sc.get("sail_h", 6.0)
+        sail_tau_v = sc.get("sail_tau", 0.28)
+        window = sc.get("window")
         out_file = OUT_FILE.replace(".npz", f"_{sc['name']}.npz")
         print(f"scenario '{sc['name']}': +{len(sc.get('trees', []))} trees, "
-              f"+{len(sc.get('sails', []))} sails -> {out_file}")
+              f"+{len(sc.get('sails', []))} module-sails, "
+              f"+{len(sail_cells)} velario cells "
+              f"(h {sail_h_v:.1f} m, tau {sail_tau_v:.2f}) -> {out_file}")
 
     grid, bld, (etop, ebot), (dtop, dbot) = build_rasters(buildings, extras, trees)
     bmask_full = bld > 0
     cover = build_cover(grid, roads, bmask_full)
 
+    sail_full = None
+    if sail_cells:
+        sail_full = np.zeros((grid.ny, grid.nx), bool)
+        for x, y in sail_cells:
+            i, j = grid.cell(x, y)
+            if 0 <= i < grid.ny and 0 <= j < grid.nx:
+                sail_full[i, j] = True
+
     pad = KCAP + 2
     P = lambda a: np.pad(a, pad)
     BLD, ET, EB, DT, DB = P(bld), P(etop), P(ebot), P(dtop), P(dbot)
+    SAIL = P(sail_full) if sail_full is not None else None
 
     xw, yn = to_xy(REC_N, REC_W)
     xe, ys = to_xy(REC_S, REC_E)
     i0, j0 = grid.cell(xw, yn)
     i1, j1 = grid.cell(xe, ys)
+    if window:
+        # window = [lat, lon, half_m] (square) or [lat, lon, half_x_m, half_y_m]
+        # (half_x = E-W, half_y = N-S)
+        wx, wy = to_xy(window[0], window[1])
+        ci, cj = grid.cell(wx, wy)
+        half_x = window[2]
+        half_y = window[3] if len(window) >= 4 else window[2]
+        dhx = int(math.ceil(half_x / RES))
+        dhy = int(math.ceil(half_y / RES))
+        i0, i1 = max(i0, ci - dhy), min(i1, ci + dhy + 1)
+        j0, j1 = max(j0, cj - dhx), min(j1, cj + dhx + 1)
+        print(f"windowed receptor: {i1 - i0} x {j1 - j0} cells around "
+              f"({window[0]:.6f}, {window[1]:.6f}), half {half_x:.0f}x"
+              f"{half_y:.0f} m")
     rec = (i0 + pad, i1 + pad, j0 + pad, j1 + pad)
     rec_shape = (i1 - i0, j1 - j0)
     bmask_rec = bmask_full[i0:i1, j0:j1]
@@ -664,7 +711,8 @@ def main():
         elev, az = solar_position(jd, LAT0, LON0)
         keep = elev > MIN_ELEV
         for mins, e, a in zip(minutes[keep], elev[keep], az[keep]):
-            f = sun_fraction(BLD, ET, EB, DT, DB, rec, e, a, hmax, tau_d)
+            f = sun_fraction(BLD, ET, EB, DT, DB, rec, e, a, hmax, tau_d,
+                             SAIL, sail_h_v, sail_tau_v)
             fbin = f >= 0.5
             hours[m - 1] += fbin * (STEP_MIN / 60.0)
             insol[m - 1] += f * clear_sky_direct_horizontal(e) \
@@ -689,6 +737,8 @@ def main():
     for name, (la, lo) in POIS.items():
         x, y = to_xy(la, lo)
         sel = ((xx - x) ** 2 + (yy - y) ** 2 <= POI_RADIUS ** 2) & ~bmask_rec
+        if not sel.any():        # POI outside a windowed receptor box
+            continue
         entry = {
             "annual_hours": float(annual_h[sel].mean()),
             "annual_insol": float(annual_i[sel].mean()),
