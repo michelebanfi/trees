@@ -96,7 +96,11 @@ The whole-campus averages above dilute the interventions across a large mostly-e
 
 ## Which activity areas matter most
 
-Each mapped polygon is scored on three axes to steer where to look next: **sun exposure** (baseline June-August sun, h/day — higher = more need for shade), **area** (m2 — larger = more people served), and **centrality** (distance from the activity-area centre — closer = more used). Priority is the equal-weight mean of the three, each normalised 0-1 across polygons (centrality = 1 - dist/max). Sorted most-important first; IDs match `activity_areas.png`.
+Each mapped polygon is scored on three axes to steer where to look next: **sun exposure** (baseline June-August sun, h/day — higher = more need for shade), **area** (m2 — larger = more people served), and **centrality**. Priority is the equal-weight mean of the three, each normalised 0-1 across polygons (centrality = 1 - dist/max). Centrality is reported two ways; IDs match the figures.
+
+### Centrality = distance from the geometric activity centre
+
+Distance from the area-weighted centroid of all activity polygons. Map + scatter: `activity_areas.png`.
 
 | # | area (m2) | sun exposure (h/day) | dist. from centre (m) | priority |
 |---|---|---|---|---|
@@ -122,7 +126,37 @@ Each mapped polygon is scored on three axes to steer where to look next: **sun e
 | P3 | 598 | 3.0 | 109 | 0.34 |
 | P21 | 1,707 | 7.8 | 335 | 0.29 |
 
-Top priorities: **P12, P15, P8** — large, central and sun-exposed. See `activity_areas.png` (map + scatter) for the spatial picture.
+Top priorities: **P12, P15, P8**.
+
+### Centrality = distance from the pedestrian-path centroid
+
+Here centrality uses **how people actually move**: the flow-weighted centroid (person-distance) of the PT-to-campus walking paths (`route_flows`), **clipped to a campus-scale box** so distant approach corridors to the stations don't dominate (1,656 of 3,800 path segments fall inside the box). It sits ~74 m from the geometric centre; areas on the main internal circulation score as more central. Map (with the clipped flow paths) + scatter: `activity_areas_flow.png`.
+
+| # | area (m2) | sun exposure (h/day) | dist. from path centroid (m) | priority |
+|---|---|---|---|---|
+| P12 | 9,407 | 9.4 | 191 | 0.74 |
+| P15 | 6,434 | 10.8 | 218 | 0.64 |
+| P8 | 6,045 | 6.4 | 108 | 0.62 |
+| P2 | 6,803 | 4.9 | 126 | 0.58 |
+| P18 | 3,394 | 8.8 | 133 | 0.57 |
+| P1 | 3,497 | 11.3 | 228 | 0.55 |
+| P5 | 1,031 | 5.5 | 56 | 0.47 |
+| P19 | 2,788 | 9.0 | 215 | 0.47 |
+| P16 | 1,144 | 8.7 | 157 | 0.46 |
+| P13 | 3,133 | 8.2 | 213 | 0.45 |
+| P6 | 758 | 5.1 | 52 | 0.45 |
+| P20 | 4,428 | 8.7 | 310 | 0.41 |
+| P17 | 1,593 | 9.0 | 239 | 0.40 |
+| P7 | 805 | 5.6 | 122 | 0.40 |
+| P14 | 3,535 | 8.0 | 282 | 0.39 |
+| P9 | 1,135 | 2.3 | 66 | 0.37 |
+| P4 | 1,164 | 5.0 | 139 | 0.37 |
+| P10 | 602 | 3.6 | 106 | 0.35 |
+| P21 | 1,707 | 7.8 | 297 | 0.30 |
+| P11 | 693 | 4.5 | 193 | 0.28 |
+| P3 | 598 | 3.0 | 175 | 0.25 |
+
+Top priorities by pedestrian-path centrality: **P12, P15, P8** — the same top three as by geometric centre (the clipped path centroid sits close to it), a reassuring cross-check; the mid-table order does shift with proximity to the walked corridors.
 
 ## Cost basis (economic estimation — sources)
 

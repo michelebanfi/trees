@@ -74,10 +74,19 @@ the whole-campus averages dilute small interventions, the campus indicators are
 *also* computed over the union of hand-mapped walkable / dwell polygons
 (`data/<campus>/areas.geojson`, ~59,000 m² — the global figures are kept too).
 Each polygon is then scored on **sun exposure** (baseline JJA h/day), **area**,
-and **centrality** (distance from the activity-area centroid) into an
-equal-weight **priority** (0–1), to point future work at the areas that matter
-most. Output: a ranking table in `indicators.md` plus `activity_areas.png` (map
-coloured by priority + a sun-vs-centrality bubble chart, bubble size = area).
+and **centrality**, into an equal-weight **priority** (0–1), to point future
+work at the areas that matter most. Centrality is computed **two ways**: (1)
+distance from the geometric activity centroid, and (2) distance from the
+**pedestrian-path centroid** — the flow-weighted centre of mass of the
+PT→campus walking paths (`route_flows`), **clipped to a campus-scale box**
+(`data/<campus>/flow_clip.geojson`) so the long approach corridors to the
+stations don't drag it off-campus. This rewards areas on the main internal
+circulation; with the clip it lands ~75 m from the geometric centre (so the two
+rankings largely agree — a useful cross-check).
+Output: two ranking tables in `indicators.md` plus `activity_areas.png`
+(geometric) and `activity_areas_flow.png` (path-based, with the pedestrian
+network overlaid) — each a priority-coloured map + a sun-vs-centrality bubble
+chart (bubble size = area).
 
 **Per-point cost-benefit (steps 12–14, the focus):** `point_studies.py` reads
 hand-drawn shading footprints from `data/<campus>/placements.geojson` (one

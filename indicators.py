@@ -181,6 +181,32 @@ def footprint_stats(R, xy_list):
             "shade_pct": 100.0 * float((h < SHADE_H).mean())}
 
 
+def flow_centroid():
+    """Centre of mass of the pedestrian arrival paths (route_flows), weighted
+    by person-distance (flow x length). If data/<campus>/flow_clip.geojson
+    exists, only path segments whose midpoint falls inside that polygon are
+    used, so distant approach corridors to the stations don't dominate.
+    Returns ((x, y), edges_used, n_total)."""
+    from matplotlib.path import Path
+    edges = json.load(open(FLOWS_FILE))["edges"]
+    n_total = len(edges)
+    clip_path = os.path.join(DATA_DIR, "flow_clip.geojson")
+    if os.path.exists(clip_path):
+        ring = json.load(open(clip_path))["features"][0]["geometry"][
+            "coordinates"][0]
+        box = Path(np.array([to_xy(c[1], c[0]) for c in ring]))
+        edges = [e for e in edges if box.contains_point(
+            ((e["a"][0] + e["b"][0]) / 2, (e["a"][1] + e["b"][1]) / 2))]
+    nx = ny = den = 0.0
+    for e in edges:
+        (ax, ay), (bx, by) = e["a"], e["b"]
+        w = e["flow"] * e["len"]
+        nx += w * (ax + bx) / 2
+        ny += w * (ay + by) / 2
+        den += w
+    return (nx / den, ny / den), edges, n_total
+
+
 def rank_areas(base, areas, center):
     """Score each activity polygon by sun / area / centrality -> priority."""
     rows = []
@@ -291,6 +317,10 @@ def main():
                  for s, R in rasters.items()}
     union_m2 = float(union.sum()) * base.res ** 2
     ranking = rank_areas(base, areas, center)
+    flow_center, flow_edges, flow_n_total = flow_centroid()
+    ranking_flow = rank_areas(base, areas, flow_center)
+    geo_flow_gap = math.hypot(flow_center[0] - center[0],
+                              flow_center[1] - center[1])
 
     # ---- report ----------------------------------------------------------
     L = []
@@ -420,25 +450,54 @@ def main():
     L.append("")
 
     # per-polygon priority ranking
+    def ranking_table(rows, dist_label):
+        out = [f"| # | area (m2) | sun exposure (h/day) | {dist_label} | "
+               "priority |", "|---|---|---|---|---|"]
+        for r in rows:
+            out.append(f"| P{r['id']} | {r['area']:,.0f} | {r['sun']:.1f} | "
+                       f"{r['dist']:.0f} | {r['priority']:.2f} |")
+        return out
+
     L.append("## Which activity areas matter most\n")
     L.append("Each mapped polygon is scored on three axes to steer where to "
              "look next: **sun exposure** (baseline June-August sun, h/day — "
              "higher = more need for shade), **area** (m2 — larger = more people "
-             "served), and **centrality** (distance from the activity-area "
-             "centre — closer = more used). Priority is the equal-weight mean of "
+             "served), and **centrality**. Priority is the equal-weight mean of "
              "the three, each normalised 0-1 across polygons (centrality = "
-             "1 - dist/max). Sorted most-important first; IDs match "
-             "`activity_areas.png`.\n")
-    L.append("| # | area (m2) | sun exposure (h/day) | dist. from centre (m) | "
-             "priority |")
-    L.append("|---|---|---|---|---|")
-    for r in ranking:
-        L.append(f"| P{r['id']} | {r['area']:,.0f} | {r['sun']:.1f} | "
-                 f"{r['dist']:.0f} | {r['priority']:.2f} |")
+             "1 - dist/max). Centrality is reported two ways; IDs match the "
+             "figures.\n")
+
+    L.append("### Centrality = distance from the geometric activity centre\n")
+    L.append("Distance from the area-weighted centroid of all activity "
+             "polygons. Map + scatter: `activity_areas.png`.\n")
+    L += ranking_table(ranking, "dist. from centre (m)")
     L.append("")
-    top = ", ".join(f"P{r['id']}" for r in ranking[:3])
-    L.append(f"Top priorities: **{top}** — large, central and sun-exposed. See "
-             "`activity_areas.png` (map + scatter) for the spatial picture.\n")
+    L.append(f"Top priorities: **{', '.join('P'+str(r['id']) for r in ranking[:3])}**.\n")
+
+    L.append("### Centrality = distance from the pedestrian-path centroid\n")
+    L.append("Here centrality uses **how people actually move**: the "
+             "flow-weighted centroid (person-distance) of the PT-to-campus "
+             "walking paths (`route_flows`), **clipped to a campus-scale box** "
+             f"so distant approach corridors to the stations don't dominate "
+             f"({len(flow_edges):,} of {flow_n_total:,} path segments fall "
+             f"inside the box). It sits ~{geo_flow_gap:.0f} m from the geometric "
+             "centre; areas on the main internal circulation score as more "
+             "central. Map (with the clipped flow paths) + scatter: "
+             "`activity_areas_flow.png`.\n")
+    L += ranking_table(ranking_flow, "dist. from path centroid (m)")
+    L.append("")
+    tf = ", ".join(f"P{r['id']}" for r in ranking_flow[:3])
+    tg = ", ".join(f"P{r['id']}" for r in ranking[:3])
+    if [r["id"] for r in ranking_flow[:3]] == [r["id"] for r in ranking[:3]]:
+        L.append(f"Top priorities by pedestrian-path centrality: **{tf}** — the "
+                 "same top three as by geometric centre (the clipped path "
+                 "centroid sits close to it), a reassuring cross-check; the "
+                 "mid-table order does shift with proximity to the walked "
+                 "corridors.\n")
+    else:
+        L.append(f"Top priorities by pedestrian-path centrality: **{tf}** "
+                 f"(vs {tg} by geometric centre) — the path-based view "
+                 "reweights toward the areas people actually walk through.\n")
 
     L.append(COST_BASIS)
 
@@ -450,7 +509,11 @@ def main():
 
     points_figure(base, pt_scn, pt_ras, cb)
     curve_figure(cb)
-    activity_figure(base, ranking, center)
+    activity_figure(base, ranking, center, "activity_areas.png",
+                    "Activity-area priorities (geometric centre)")
+    activity_figure(base, ranking_flow, flow_center, "activity_areas_flow.png",
+                    "Activity-area priorities (pedestrian-path centre)",
+                    flow_edges=flow_edges)
 
 
 COST_BASIS = """## Cost basis (economic estimation — sources)
@@ -613,11 +676,12 @@ def curve_figure(cb):
     print(f"wrote {OUT_DIR}/cost_benefit.png")
 
 
-def activity_figure(base, ranking, center):
+def activity_figure(base, ranking, center, fname, title, flow_edges=None):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import matplotlib.patheffects as pe
+    from matplotlib.collections import LineCollection
     from matplotlib.colors import (LinearSegmentedColormap, to_rgba, Normalize)
     from matplotlib.patches import Polygon as MplPoly
     from render_map import SUN_RAMP, INK, MUTED, BUILDING_FILL
@@ -629,8 +693,10 @@ def activity_figure(base, ranking, center):
     halo = [pe.withStroke(linewidth=2.2, foreground="white")]
 
     allxy = np.vstack([r["xy"] for r in ranking])
-    x0, x1 = allxy[:, 0].min() - 25, allxy[:, 0].max() + 25
-    y0, y1 = allxy[:, 1].min() - 25, allxy[:, 1].max() + 25
+    x0 = min(allxy[:, 0].min(), center[0]) - 25
+    x1 = max(allxy[:, 0].max(), center[0]) + 25
+    y0 = min(allxy[:, 1].min(), center[1]) - 25
+    y1 = max(allxy[:, 1].max(), center[1]) + 25
 
     fig, (axm, axs) = plt.subplots(1, 2, figsize=(15.5, 7.2), dpi=170,
                                    gridspec_kw={"width_ratios": [1.3, 1]})
@@ -648,20 +714,30 @@ def activity_figure(base, ranking, center):
         axm.annotate(f"P{r['id']}", r["cxy"], ha="center", va="center",
                      fontsize=8, fontweight="bold", color=INK, zorder=5,
                      path_effects=halo)
-    axm.plot(center[0], center[1], "*", ms=20, color="#c62828", mec="white",
+    star_lbl = "path centroid" if flow_edges else "campus centre"
+    if flow_edges:                              # overlay the pedestrian paths
+        fmax = max(e["flow"] for e in flow_edges) or 1.0
+        segs = [[tuple(e["a"]), tuple(e["b"])] for e in flow_edges]
+        lws = [0.2 + 2.4 * e["flow"] / fmax for e in flow_edges]
+        axm.add_collection(LineCollection(segs, colors="#1f4e79", linewidths=lws,
+                                          alpha=0.35, zorder=4))
+    axm.plot(center[0], center[1], "*", ms=22, color="#c62828", mec="white",
              mew=1.3, zorder=6)
     axm.set_xlim(x0, x1); axm.set_ylim(y0, y1); axm.set_aspect("equal")
     axm.set_xticks([]); axm.set_yticks([])
     for sp in axm.spines.values():
         sp.set_visible(False)
-    axm.set_title("Activity areas, coloured by priority  (star = campus centre)",
-                  fontsize=11.5, color=INK, loc="left", fontweight="bold")
+    axm.set_title(f"Activity areas by priority  (star = {star_lbl}"
+                  f"{'; lines = pedestrian paths' if flow_edges else ''})",
+                  fontsize=11, color=INK, loc="left", fontweight="bold")
     sm = plt.cm.ScalarMappable(cmap=pri, norm=norm)
     cbar = fig.colorbar(sm, ax=axm, shrink=0.55, pad=0.01)
     cbar.set_label("priority", fontsize=10, color=INK)
     cbar.ax.tick_params(labelsize=8, colors=INK)
     cbar.outline.set_visible(False)
 
+    xlab = ("distance from path centroid (m)" if flow_edges else
+            "distance from campus centre (m)") + "  —  lower = more central"
     sizes = [40 + 0.055 * r["area"] for r in ranking]
     axs.scatter([r["dist"] for r in ranking], [r["sun"] for r in ranking],
                 s=sizes, c=pv, cmap=pri, norm=norm, edgecolor=INK, lw=0.8,
@@ -670,8 +746,7 @@ def activity_figure(base, ranking, center):
         axs.annotate(f"P{r['id']}", (r["dist"], r["sun"]), xytext=(5, 4),
                      textcoords="offset points", fontsize=8, color=INK,
                      path_effects=halo)
-    axs.set_xlabel("distance from campus centre (m)  —  lower = more central",
-                   fontsize=10, color=INK)
+    axs.set_xlabel(xlab, fontsize=10, color=INK)
     axs.set_ylabel("sun exposure (h/day, June-August)", fontsize=10, color=INK)
     axs.set_title("bubble size = area (m2)", fontsize=11.5, color=INK,
                   loc="left", fontweight="bold")
@@ -680,12 +755,11 @@ def activity_figure(base, ranking, center):
         sp.set_color(MUTED)
     axs.tick_params(colors=INK, labelsize=9)
 
-    fig.suptitle(f"Activity-area priorities — {CFG['label']}", fontsize=14,
-                 x=0.02, y=1.0, ha="left", fontweight="bold", color=INK)
+    fig.suptitle(f"{title} — {CFG['label']}", fontsize=14, x=0.02, y=1.0,
+                 ha="left", fontweight="bold", color=INK)
     fig.tight_layout()
-    fig.savefig(f"{OUT_DIR}/activity_areas.png", bbox_inches="tight",
-                facecolor="white")
-    print(f"wrote {OUT_DIR}/activity_areas.png")
+    fig.savefig(f"{OUT_DIR}/{fname}", bbox_inches="tight", facecolor="white")
+    print(f"wrote {OUT_DIR}/{fname}")
 
 
 if __name__ == "__main__":
