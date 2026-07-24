@@ -86,13 +86,13 @@ A localized intervention barely shifts campus-wide averages — which is why the
 
 ### Restricted to the walkable / activity areas
 
-The whole-campus averages above dilute the interventions across a large mostly-empty surface. Restricting the same indicators to the 21 mapped walkable / dwell polygons (**58,705 m2** where people actually are) gives a sharper read:
+The whole-campus averages above dilute the interventions across a large mostly-empty surface. Restricting the same indicators to the 38 mapped walkable / dwell polygons (**110,547 m2** where people actually are) gives a sharper read:
 
 | Indicator | Baseline | Trees | Sails |
 |---|---|---|---|
-| % activity area under shade (JJA) | 10.4% | 11.0% | 10.4% |
-| Mean sun over activity area (h/day) | 8.06 | 7.58 | 7.94 |
-| Avg surface temperature (degC) | 41.0 | 40.4 | 40.9 |
+| % activity area under shade (JJA) | 11.7% | 12.2% | 11.8% |
+| Mean sun over activity area (h/day) | 8.04 | 7.70 | 7.94 |
+| Avg surface temperature (degC) | 41.1 | 40.6 | 40.9 |
 
 ## Which activity areas matter most
 
@@ -104,59 +104,93 @@ Distance from the area-weighted centroid of all activity polygons. Map + scatter
 
 | # | area (m2) | sun exposure (h/day) | dist. from centre (m) | priority |
 |---|---|---|---|---|
-| P12 | 9,407 | 9.4 | 151 | 0.79 |
-| P15 | 6,434 | 10.8 | 183 | 0.70 |
-| P8 | 6,045 | 6.4 | 47 | 0.69 |
-| P2 | 6,803 | 4.9 | 111 | 0.61 |
-| P18 | 3,394 | 8.8 | 166 | 0.55 |
-| P1 | 3,497 | 11.3 | 244 | 0.55 |
-| P6 | 758 | 5.1 | 23 | 0.49 |
-| P19 | 2,788 | 9.0 | 216 | 0.48 |
-| P17 | 1,593 | 9.0 | 176 | 0.48 |
-| P7 | 805 | 5.6 | 51 | 0.48 |
-| P13 | 3,133 | 8.2 | 210 | 0.48 |
-| P16 | 1,144 | 8.7 | 157 | 0.47 |
-| P14 | 3,535 | 8.0 | 225 | 0.47 |
-| P5 | 1,031 | 5.5 | 68 | 0.47 |
-| P4 | 1,164 | 5.0 | 85 | 0.44 |
-| P20 | 4,428 | 8.7 | 337 | 0.41 |
-| P11 | 693 | 4.5 | 125 | 0.37 |
-| P9 | 1,135 | 2.3 | 80 | 0.36 |
-| P10 | 602 | 3.6 | 106 | 0.36 |
-| P3 | 598 | 3.0 | 109 | 0.34 |
-| P21 | 1,707 | 7.8 | 335 | 0.29 |
+| P12 | 9,407 | 9.4 | 237 | 0.79 |
+| P31 | 8,973 | 7.4 | 250 | 0.70 |
+| P15 | 6,434 | 10.8 | 269 | 0.70 |
+| P34 | 4,729 | 10.8 | 181 | 0.70 |
+| P2 | 6,803 | 4.9 | 41 | 0.69 |
+| P1 | 3,497 | 11.3 | 159 | 0.68 |
+| P33 | 3,780 | 9.9 | 123 | 0.68 |
+| P18 | 3,394 | 8.8 | 85 | 0.66 |
+| P8 | 6,045 | 6.4 | 133 | 0.65 |
+| P19 | 2,788 | 9.0 | 135 | 0.61 |
+| P20 | 4,428 | 8.7 | 251 | 0.58 |
+| P32 | 2,604 | 10.6 | 260 | 0.56 |
+| P29 | 5,396 | 5.5 | 187 | 0.56 |
+| P27 | 5,213 | 4.3 | 192 | 0.51 |
+| P5 | 1,031 | 5.5 | 30 | 0.51 |
+| P13 | 3,133 | 8.2 | 286 | 0.49 |
+| P28 | 1,643 | 10.4 | 307 | 0.49 |
+| P14 | 3,535 | 8.0 | 308 | 0.49 |
+| P17 | 1,593 | 9.0 | 255 | 0.48 |
+| P25 | 4,884 | 7.0 | 346 | 0.48 |
+| P16 | 1,144 | 8.7 | 230 | 0.47 |
+| P4 | 1,164 | 5.0 | 82 | 0.47 |
+| P6 | 758 | 5.1 | 74 | 0.46 |
+| P7 | 805 | 5.6 | 100 | 0.46 |
+| P35 | 2,488 | 9.5 | 358 | 0.46 |
+| P36 | 1,657 | 9.5 | 318 | 0.46 |
+| P21 | 1,707 | 7.8 | 252 | 0.46 |
+| P22 | 5,000 | 9.1 | 497 | 0.44 |
+| P38 | 612 | 3.9 | 70 | 0.42 |
+| P24 | 1,503 | 10.5 | 414 | 0.42 |
+| P23 | 2,823 | 9.4 | 441 | 0.41 |
+| P37 | 347 | 2.4 | 86 | 0.36 |
+| P3 | 598 | 3.0 | 127 | 0.36 |
+| P11 | 693 | 4.5 | 201 | 0.35 |
+| P9 | 1,135 | 2.3 | 140 | 0.35 |
+| P10 | 602 | 3.6 | 177 | 0.34 |
+| P30 | 459 | 4.2 | 230 | 0.32 |
+| P26 | 1,050 | 0.0 | 272 | 0.19 |
 
-Top priorities: **P12, P15, P8**.
+Top priorities: **P12, P31, P15**.
 
 ### Centrality = distance from the pedestrian-path centroid
 
-Here centrality uses **how people actually move**: the flow-weighted centroid (person-distance) of the PT-to-campus walking paths (`route_flows`), **clipped to a campus-scale box** so distant approach corridors to the stations don't dominate (1,656 of 3,800 path segments fall inside the box). It sits ~74 m from the geometric centre; areas on the main internal circulation score as more central. Map (with the clipped flow paths) + scatter: `activity_areas_flow.png`.
+Here centrality uses **how people actually move**: the flow-weighted centroid (person-distance) of the PT-to-campus walking paths (`route_flows`), **clipped to a campus-scale box** so distant approach corridors to the stations don't dominate (1,656 of 3,800 path segments fall inside the box). It sits ~86 m from the geometric centre; areas on the main internal circulation score as more central. Map (with the clipped flow paths) + scatter: `activity_areas_flow.png`.
 
 | # | area (m2) | sun exposure (h/day) | dist. from path centroid (m) | priority |
 |---|---|---|---|---|
-| P12 | 9,407 | 9.4 | 191 | 0.74 |
-| P15 | 6,434 | 10.8 | 218 | 0.64 |
-| P8 | 6,045 | 6.4 | 108 | 0.62 |
-| P2 | 6,803 | 4.9 | 126 | 0.58 |
-| P18 | 3,394 | 8.8 | 133 | 0.57 |
-| P1 | 3,497 | 11.3 | 228 | 0.55 |
-| P5 | 1,031 | 5.5 | 56 | 0.47 |
-| P19 | 2,788 | 9.0 | 215 | 0.47 |
-| P16 | 1,144 | 8.7 | 157 | 0.46 |
-| P13 | 3,133 | 8.2 | 213 | 0.45 |
-| P6 | 758 | 5.1 | 52 | 0.45 |
-| P20 | 4,428 | 8.7 | 310 | 0.41 |
-| P17 | 1,593 | 9.0 | 239 | 0.40 |
-| P7 | 805 | 5.6 | 122 | 0.40 |
-| P14 | 3,535 | 8.0 | 282 | 0.39 |
-| P9 | 1,135 | 2.3 | 66 | 0.37 |
-| P4 | 1,164 | 5.0 | 139 | 0.37 |
-| P10 | 602 | 3.6 | 106 | 0.35 |
-| P21 | 1,707 | 7.8 | 297 | 0.30 |
-| P11 | 693 | 4.5 | 193 | 0.28 |
-| P3 | 598 | 3.0 | 175 | 0.25 |
+| P12 | 9,407 | 9.4 | 191 | 0.83 |
+| P15 | 6,434 | 10.8 | 218 | 0.75 |
+| P33 | 3,780 | 9.9 | 47 | 0.73 |
+| P34 | 4,729 | 10.8 | 215 | 0.69 |
+| P31 | 8,973 | 7.4 | 336 | 0.67 |
+| P8 | 6,045 | 6.4 | 108 | 0.67 |
+| P1 | 3,497 | 11.3 | 228 | 0.66 |
+| P2 | 6,803 | 4.9 | 126 | 0.64 |
+| P18 | 3,394 | 8.8 | 133 | 0.63 |
+| P32 | 2,604 | 10.6 | 180 | 0.63 |
+| P27 | 5,213 | 4.3 | 112 | 0.58 |
+| P19 | 2,788 | 9.0 | 215 | 0.57 |
+| P20 | 4,428 | 8.7 | 310 | 0.56 |
+| P13 | 3,133 | 8.2 | 213 | 0.56 |
+| P25 | 4,884 | 7.0 | 261 | 0.56 |
+| P29 | 5,396 | 5.5 | 221 | 0.56 |
+| P16 | 1,144 | 8.7 | 157 | 0.54 |
+| P14 | 3,535 | 8.0 | 282 | 0.53 |
+| P17 | 1,593 | 9.0 | 239 | 0.51 |
+| P5 | 1,031 | 5.5 | 56 | 0.50 |
+| P6 | 758 | 5.1 | 52 | 0.48 |
+| P28 | 1,643 | 10.4 | 375 | 0.48 |
+| P35 | 2,488 | 9.5 | 393 | 0.47 |
+| P7 | 805 | 5.6 | 122 | 0.45 |
+| P36 | 1,657 | 9.5 | 367 | 0.45 |
+| P21 | 1,707 | 7.8 | 297 | 0.45 |
+| P38 | 612 | 3.9 | 36 | 0.45 |
+| P22 | 5,000 | 9.1 | 561 | 0.44 |
+| P4 | 1,164 | 5.0 | 139 | 0.44 |
+| P37 | 347 | 2.4 | 4 | 0.42 |
+| P9 | 1,135 | 2.3 | 66 | 0.40 |
+| P23 | 2,823 | 9.4 | 518 | 0.40 |
+| P24 | 1,503 | 10.5 | 497 | 0.40 |
+| P10 | 602 | 3.6 | 106 | 0.40 |
+| P11 | 693 | 4.5 | 193 | 0.37 |
+| P3 | 598 | 3.0 | 175 | 0.34 |
+| P30 | 459 | 4.2 | 230 | 0.34 |
+| P26 | 1,050 | 0.0 | 186 | 0.26 |
 
-Top priorities by pedestrian-path centrality: **P12, P15, P8** — the same top three as by geometric centre (the clipped path centroid sits close to it), a reassuring cross-check; the mid-table order does shift with proximity to the walked corridors.
+Top priorities by pedestrian-path centrality: **P12, P15, P33** (vs P12, P31, P15 by geometric centre) — the path-based view reweights toward the areas people actually walk through.
 
 ## Cost basis (economic estimation — sources)
 
